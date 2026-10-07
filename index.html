@@ -236,6 +236,18 @@ body.open .instruction { animation: pulse 2.4s ease-in-out 2.4s infinite; }
     text-align: center; font-size: 0.75rem; letter-spacing: 0.12em; color: var(--muted);
 }
 
+/* ---------- Music toggle ---------- */
+#sound-toggle {
+    position: fixed; top: 1.2rem; right: 1.2rem;
+    width: 2.6rem; height: 2.6rem; border-radius: 50%;
+    border: 1px solid var(--accent-deep); background: rgba(250,246,238,0.8);
+    color: var(--accent-deep); font-size: 1.2rem; line-height: 1;
+    cursor: pointer; z-index: 20;
+    opacity: 0; pointer-events: none; transition: opacity 0.6s ease;
+}
+#sound-toggle.show { opacity: 1; pointer-events: auto; }
+#sound-toggle.off { opacity: 0.45; text-decoration: line-through; }
+
 /* ---------- Card browser (dots + hint) ---------- */
 .card-nav {
     position: fixed; left: 0; right: 0;
@@ -409,6 +421,8 @@ body.open .instruction { animation: pulse 2.4s ease-in-out 2.4s infinite; }
         <div class="cover-hint">tap to open the seal</div>
     </div>
 
+    <button id="sound-toggle" aria-label="Toggle music">&#9835;</button>
+
     <div class="card-nav">
         <div class="dots" id="card-dots">
             <button class="dot on" data-go="0" aria-label="Birthday card"></button>
@@ -565,9 +579,55 @@ window.addEventListener('pointerup', e => {
     setTimeout(() => { swiped = false; }, 50);
 });
 
+// --- HAPPY BIRTHDAY MUSIC BOX (synthesised in-browser, no audio file needed) ---
+let audioCtx = null, master = null, soundOn = true;
+const BDAY = [
+    // [frequency Hz, length in beats]
+    [392.00,.75],[392.00,.25],[440.00,1],[392.00,1],[523.25,1],[493.88,2],
+    [392.00,.75],[392.00,.25],[440.00,1],[392.00,1],[587.33,1],[523.25,2],
+    [392.00,.75],[392.00,.25],[783.99,1],[659.25,1],[523.25,1],[493.88,1],[440.00,2],
+    [698.46,.75],[698.46,.25],[659.25,1],[523.25,1],[587.33,1],[523.25,2]
+];
+function bell(freq, start, len) {
+    const decay = Math.max(len * 1.7, 0.9);
+    [[1, 0.30, 'sine'], [2, 0.09, 'triangle'], [3, 0.03, 'sine']].forEach(([mult, vol, type]) => {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq * mult;
+        g.gain.setValueAtTime(0.0001, start);
+        g.gain.exponentialRampToValueAtTime(vol, start + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, start + decay);
+        osc.connect(g); g.connect(master);
+        osc.start(start); osc.stop(start + decay + 0.05);
+    });
+}
+function playBirthdayTune() {
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        master = audioCtx.createGain();
+        master.gain.value = 0.55;
+        master.connect(audioCtx.destination);
+        const beat = 0.52;
+        let t = audioCtx.currentTime + 0.5;
+        BDAY.forEach(([f, d]) => { bell(f, t, d * beat); t += d * beat; });
+    } catch (e) { /* audio not supported: card still works silently */ }
+}
+function fadeOutTune() {
+    if (master) master.gain.setTargetAtTime(0, audioCtx.currentTime, 0.4);
+}
+document.getElementById('sound-toggle').addEventListener('click', e => {
+    if (!master) return;
+    soundOn = !soundOn;
+    master.gain.setTargetAtTime(soundOn ? 0.55 : 0, audioCtx.currentTime, 0.05);
+    e.currentTarget.classList.toggle('off', !soundOn);
+});
+
 document.getElementById('seal').addEventListener('click', () => {
     if (opened) return;
     opened = true;
+    playBirthdayTune();
+    document.getElementById('sound-toggle').classList.add('show');
 
     cover.classList.add('opening');
     setTimeout(() => {
@@ -579,6 +639,7 @@ document.getElementById('seal').addEventListener('click', () => {
 
 document.getElementById('read-poem-btn').addEventListener('click', () => {
     cover.classList.add('gone');
+    fadeOutTune();
     document.body.classList.add('open');
     document.body.classList.remove('locked');
 });
